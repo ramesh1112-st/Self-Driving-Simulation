@@ -1,7 +1,13 @@
 from ultralytics import YOLO
 import cv2
+import socketio
 
 model = YOLO("yolov8n.pt")
+
+# Connect to backend
+sio = socketio.Client()
+sio.connect("http://localhost:5000")
+
 
 def detect_objects(frame):
     results = model(frame)
@@ -15,9 +21,25 @@ def detect_objects(frame):
 
             x1, y1, x2, y2 = map(int, box.xyxy[0])
 
-            detections.append({
-                "object": name,
-                "box": [x1, y1, x2, y2]
-            })
+            # Decision logic
+            action = "MOVE"
 
-    return detections
+            if name == "person":
+                action = "BRAKE"
+            elif name == "car":
+                action = "STOP"
+
+            detection_data = {
+                "object": name,
+                "box": [x1, y1, x2, y2],
+                "action": action,
+                "distance": "1.2m",
+                "status": "MOVING"
+            }
+
+            detections.append(detection_data)
+
+            # Send to backend
+            sio.emit("detection", detection_data)
+
+    return detections, results

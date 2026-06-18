@@ -1,21 +1,12 @@
 import cv2
 from ultralytics import YOLO
-from detect import detect_objects
 from decision import decide_action
 import socketio
+import base64
 
+# Connect to backend
 sio = socketio.Client()
 sio.connect("http://localhost:5000")
-
-data = {
-    "object": "pedestrian",
-    "distance": "1.2m",
-    "action": "BRAKE"
-}
-
-sio.emit("detection", data)
-
-print("Sent to backend")
 
 # Load YOLO model
 model = YOLO("yolov8n.pt")
@@ -36,30 +27,49 @@ while True:
         print("Failed to capture frame")
         break
 
-    print("Phase 2 running...")
+    print("Phase 4 running...")
 
     # AI detection
     results = model(frame)
 
-    # Draw boxes
+    # Draw bounding boxes
     annotated_frame = results[0].plot()
 
+    # Convert frame to jpg
+    _, buffer = cv2.imencode(".jpg", annotated_frame)
+
+    # Convert jpg to base64
+    jpg_as_text = base64.b64encode(buffer.tobytes()).decode("utf-8")
+    
+    # Send live video frame to backend
+    sio.emit("video_frame", f"data:image/jpeg;base64,{jpg_as_text}")
+    print("Frame sent")
+
+    # Process detections
     for box in results[0].boxes:
         cls = int(box.cls[0])
         obj = model.names[cls]
 
-        #Fake distance for now
+        # Fake distance for now
         distance = 1.5
 
+        # Decision making
         action = decide_action(obj, distance)
 
-        print({
-            "object" : obj,
-            "distance" : f"{distance}m",
-            "action" : action
-        })
+        data = {
+            "object": obj,
+            "distance": f"{distance}m",
+            "action": action,
+            "status": "MOVING"
+        }
 
-         # Show action on screen
+        # Send detection data to backend
+        sio.emit("detection", data)
+
+        print("Sent to backend")
+        print(data)
+
+        # Show action on screen
         cv2.putText(
             annotated_frame,
             f"{obj} -> {action}",
@@ -74,7 +84,7 @@ while True:
     cv2.imshow("Self Driving AI", annotated_frame)
 
     # Press q to exit
-    if cv2.waitKey(1) & 0xFF == ord('q'):
+    if cv2.waitKey(1) & 0xFF == ord("q"):
         break
 
 # Release resources
