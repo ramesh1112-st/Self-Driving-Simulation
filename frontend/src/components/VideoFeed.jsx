@@ -2,11 +2,11 @@ import { useEffect, useState } from "react";
 import socket from "../socket";
 
 function VideoFeed() {
-  const [frame, setFrame] = useState(null);
+  const [frame, setFrame] = useState("");
 
   useEffect(() => {
     socket.on("live_stream", (frameData) => {
-      console.log("Frame received in frontend");
+      console.log("Frame arrived");
       setFrame(frameData);
     });
 
@@ -19,15 +19,17 @@ function VideoFeed() {
     <div>
       <h2>Live Camera Feed</h2>
 
-      {frame && (
+      {frame ? (
         <img
           src={frame}
           alt="Live Stream"
+          width="700"
           style={{
-            width: "700px",
             border: "2px solid white"
           }}
         />
+      ) : (
+        <p>Waiting for video...</p>
       )}
     </div>
   );

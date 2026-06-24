@@ -11,7 +11,7 @@ sio = socketio.Client()
 sio.connect("http://localhost:5000")
 
 
-# Listen for manual commands (OUTSIDE LOOP)
+# Receive manual commands
 @sio.on("control_command")
 def receive_command(cmd):
     global manual_command
@@ -19,7 +19,7 @@ def receive_command(cmd):
     print("Manual command received:", cmd)
 
 
-# Load model
+# Load YOLO model
 model = YOLO("yolov8n.pt")
 
 # Open camera
@@ -36,15 +36,29 @@ while True:
         print("Failed to capture frame")
         break
 
+    # Run YOLO
     results = model(frame)
 
+    # Draw boxes
     annotated_frame = results[0].plot()
 
-    # Send video frame
-    _, buffer = cv2.imencode(".jpg", annotated_frame)
-    jpg_as_text = base64.b64encode(buffer.tobytes()).decode("utf-8")
+    # Resize for frontend
+    annotated_frame = cv2.resize(annotated_frame, (640, 480))
 
-    sio.emit("video_frame", f"data:image/jpeg;base64,{jpg_as_text}")
+    # Encode frame
+    success, buffer = cv2.imencode(".jpg", annotated_frame)
+
+    if not success:
+        print("Encoding failed")
+        continue
+
+    # Convert to base64
+    jpg_as_text = base64.b64encode(buffer).decode("utf-8")
+
+    # Send video frame
+    sio.emit("video_frame", "data:image/jpeg;base64," + jpg_as_text)
+
+    print("Sending frame...")
 
     # Process detections
     for box in results[0].boxes:
@@ -53,11 +67,10 @@ while True:
 
         distance = 1.5
 
-        # Manual override
         if manual_command:
             action = manual_command
         else:
-            action = decide_action(obj)
+            action = decide_action(obj, distance)
 
         data = {
             "object": obj,
@@ -70,16 +83,7 @@ while True:
 
         print(data)
 
-        cv2.putText(
-            annotated_frame,
-            f"{obj} -> {action}",
-            (20, 40),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            1,
-            (0, 255, 0),
-            2
-        )
-
+    # Local display
     cv2.imshow("Self Driving AI", annotated_frame)
 
     if cv2.waitKey(1) & 0xFF == ord("q"):

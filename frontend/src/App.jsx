@@ -5,28 +5,45 @@ import "./App.css";
 
 function App() {
   const [data, setData] = useState({});
+  const [frame, setFrame] = useState("");
 
   useEffect(() => {
+    // Receive AI detection data
     socket.on("ai_data", (msg) => {
       setData(msg);
     });
 
-    return () => socket.off("ai_data");
+    // Receive live video stream
+    socket.on("live_stream", (frameData) => {
+      console.log("Frame received in frontend");
+      setFrame(frameData);
+    });
+
+    return () => {
+      socket.off("ai_data");
+      socket.off("live_stream");
+    };
   }, []);
 
   return (
     <div className="container">
-      <h1 className="title gloe-text">🚘 Self Driving Dashboard</h1>
+      <h1 className="title glow-text">🚘 Self Driving Dashboard</h1>
 
       <div className="top-section">
+        
         {/* Video Feed */}
         <div className="card video-card">
           <h2>Live Camera</h2>
-          <img
-            src="http://localhost:5000/video_feed"
-            alt="Live Feed"
-            className="video-feed"
-          />
+
+          {frame ? (
+            <img
+              src={frame}
+              alt="Live Feed"
+              className="video-feed"
+            />
+          ) : (
+            <p>Waiting for video...</p>
+          )}
         </div>
 
         {/* Status Panel */}
@@ -49,14 +66,15 @@ function App() {
             <p>Distance</p>
             <h3>{data.distance || "--"}</h3>
           </div>
+
           <div className="speedometer">
-          <div className="outer-circle">
-            <div className="inner-circle">
+            <div className="outer-circle">
+              <div className="inner-circle">
                 <span>{data.speed || 20}</span>
-      <          p>km/h</p>
+                <p>km/h</p>
+              </div>
             </div>
           </div>
-        </div>
         </div>
       </div>
 
