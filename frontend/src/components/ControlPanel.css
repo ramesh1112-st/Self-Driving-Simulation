@@ -1,0 +1,26 @@
+.controls {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+}
+
+.controls button {
+  padding: 14px 28px;
+  border: none;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #00d2ff, #3a47d5);
+  color: white;
+  font-size: 17px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.controls button:hover {
+  transform: translateY(-4px) scale(1.05);
+  box-shadow: 0 0 20px #00d2ff;
+}
+
+.controls button:active {
+  transform: scale(0.95);
+}

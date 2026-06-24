@@ -4,14 +4,15 @@ from decision import decide_action
 import socketio
 import base64
 
-manual_command = None
+# Default mode = AUTO
+manual_command = "AUTO"
 
 # Connect backend
 sio = socketio.Client()
 sio.connect("http://localhost:5000")
 
 
-# Receive manual commands
+# Receive manual commands from frontend
 @sio.on("control_command")
 def receive_command(cmd):
     global manual_command
@@ -29,6 +30,16 @@ if not cap.isOpened():
     print("Camera not found")
     exit()
 
+
+# Distance estimation function
+def estimate_distance(box_width):
+    KNOWN_WIDTH = 50      # cm
+    FOCAL_LENGTH = 700    # camera calibration
+
+    distance = (KNOWN_WIDTH * FOCAL_LENGTH) / max(box_width, 1)
+    return round(distance / 100, 2)   # meters
+
+
 while True:
     ret, frame = cap.read()
 
@@ -36,7 +47,7 @@ while True:
         print("Failed to capture frame")
         break
 
-    # Run YOLO
+    # Run YOLO detection
     results = model(frame)
 
     # Draw boxes
@@ -55,7 +66,7 @@ while True:
     # Convert to base64
     jpg_as_text = base64.b64encode(buffer).decode("utf-8")
 
-    # Send video frame
+    # Send live video frame
     sio.emit("video_frame", "data:image/jpeg;base64," + jpg_as_text)
 
     print("Sending frame...")
@@ -65,25 +76,55 @@ while True:
         cls = int(box.cls[0])
         obj = model.names[cls]
 
-        distance = 1.5
+        # Bounding box
+        x1, y1, x2, y2 = map(int, box.xyxy[0])
 
-        if manual_command:
-            action = manual_command
-        else:
+        # Box width for distance estimation
+        box_width = x2 - x1
+
+        # Estimate distance
+        distance = estimate_distance(box_width)
+
+        # Decide action
+        if manual_command == "AUTO":
             action = decide_action(obj, distance)
+        else:
+            action = manual_command
 
+        # Step 3 (GenAI explanation)
+        from explainer import explain_decision
+
+        explanation = explain_decision({
+            "object": obj,
+            "distance": distance,
+            "action": action
+        })
+
+        print("AI Explanation:", explanation)
+
+        sio.emit("ai_explanation", {
+            "object": obj,
+            "distance": distance,
+            "action": action,
+            "explanation": explanation
+        })
+
+
+        # Data to frontend
         data = {
             "object": obj,
             "distance": f"{distance}m",
             "action": action,
-            "status": "MOVING"
+            "status": "STOPPED" if action in ["BRAKE", "STOP"] else "MOVING",
+            "speed": 0 if action in ["BRAKE", "STOP"] else 20
         }
 
+        # Send detection data
         sio.emit("detection", data)
 
         print(data)
 
-    # Local display
+    # Show local camera
     cv2.imshow("Self Driving AI", annotated_frame)
 
     if cv2.waitKey(1) & 0xFF == ord("q"):

@@ -8,14 +8,11 @@ function App() {
   const [frame, setFrame] = useState("");
 
   useEffect(() => {
-    // Receive AI detection data
     socket.on("ai_data", (msg) => {
       setData(msg);
     });
 
-    // Receive live video stream
     socket.on("live_stream", (frameData) => {
-      console.log("Frame received in frontend");
       setFrame(frameData);
     });
 
@@ -27,27 +24,24 @@ function App() {
 
   return (
     <div className="container">
-      <h1 className="title glow-text">🚘 Self Driving Dashboard</h1>
+      <h1 className="title">🚘 Self Driving Dashboard</h1>
 
-      <div className="top-section">
-        
-        {/* Video Feed */}
-        <div className="card video-card">
+      <div className="dashboard">
+
+        {/* Video Section */}
+        <div className="video-card">
           <h2>Live Camera</h2>
-
-          {frame ? (
-            <img
-              src={frame}
-              alt="Live Feed"
-              className="video-feed"
-            />
-          ) : (
-            <p>Waiting for video...</p>
-          )}
+          <div className="video-wrapper">
+            {frame ? (
+              <img src={frame} alt="Live Feed" className="video-feed" />
+            ) : (
+              <p>Waiting for video...</p>
+            )}
+          </div>
         </div>
 
-        {/* Status Panel */}
-        <div className="card status-card">
+        {/* Status Section */}
+        <div className="status-card">
           <h2>AI Status</h2>
 
           <div className="info-box">
@@ -57,9 +51,7 @@ function App() {
 
           <div className="info-box">
             <p>Action</p>
-            <h3 className={`action ${data.action?.toLowerCase()}`}>
-              {data.action || "None"}
-            </h3>
+            <h3>{data.action || "None"}</h3>
           </div>
 
           <div className="info-box">
@@ -67,19 +59,19 @@ function App() {
             <h3>{data.distance || "--"}</h3>
           </div>
 
-          <div className="speedometer">
-            <div className="outer-circle">
-              <div className="inner-circle">
-                <span>{data.speed || 20}</span>
-                <p>km/h</p>
-              </div>
-            </div>
+          <div className="info-box">
+            <p>Vehicle Status</p>
+            <h3>{data.status || "Waiting..."}</h3>
+          </div>
+
+          <div className="speed-box">
+            <h2>{data.speed || 0} km/h</h2>
           </div>
         </div>
       </div>
 
-      {/* Manual Controls */}
-      <div className="card control-card">
+      {/* Controls */}
+      <div className="control-card">
         <h2>Manual Control</h2>
         <ControlPanel />
       </div>

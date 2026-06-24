@@ -15,47 +15,63 @@ const io = new Server(server, {
   }
 });
 
+// Store detection logs
 let logs = [];
 
 io.on("connection", (socket) => {
   console.log("Connected:", socket.id);
 
-  // Manual control
-  socket.on("manual_control", (cmd) => {
+  // Receive manual control from frontend
+  socket.on("control_command", (cmd) => {
     console.log("Manual command:", cmd);
+
+    // Send to Python AI
     io.emit("control_command", cmd);
   });
 
-  // Detection data
+  // Receive detection data from Python
   socket.on("detection", (data) => {
     console.log("Detection:", data);
 
+    // Save logs
     logs.push(data);
 
+    // Send AI data to frontend
     io.emit("ai_data", data);
   });
 
-  // Video frames
+
+  socket.on("ai_explanation", (data) => {
+    console.log("AI Explanation:", data);
+    io.emit("show_explanation", data);
+  });
+
+
+  // Receive video frame from Python
   socket.on("video_frame", (frame) => {
     console.log("Frame received");
 
+    // Send live stream to frontend
     io.emit("live_stream", frame);
   });
 
+  // Disconnect
   socket.on("disconnect", () => {
     console.log("Disconnected:", socket.id);
   });
 });
 
-// Logs API
+// API to fetch logs
 app.get("/logs", (req, res) => {
   res.json(logs);
 });
 
+// Test route
 app.get("/", (req, res) => {
-  res.send("Backend running");
+  res.send("Backend running...");
 });
 
+// Start server
 server.listen(5000, () => {
   console.log("Server running on port 5000");
 });

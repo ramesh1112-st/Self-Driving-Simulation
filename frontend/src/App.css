@@ -5,244 +5,111 @@
 }
 
 body {
-  background: linear-gradient(-45deg, #0f172a, #1e293b, #0f172a, #2563eb);
-  background-size: 400% 400%;
-  animation: gradientMove 10s ease infinite;
+  background: #0d1f56;
   font-family: Arial, sans-serif;
-  color: white;
-}
-
-@keyframes gradientMove {
-  0% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 0% 50%;
-  }
+  overflow: hidden;
 }
 
 .container {
-  min-height: 100vh;
-  padding: 20px;
+  width: 100vw;
+  height: 100vh;
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
 }
 
 .title {
   text-align: center;
-  font-size: 32px;
-  margin-bottom: 25px;
-  font-weight: bold;
+  color: white;
+  font-size: 36px;
+  margin-bottom: 10px;
 }
 
-.top-section {
-  display: flex;
-  gap: 20px;
-  align-items: flex-start;
-}
-
-.card {
-  background: rgba(255,255,255,0.08);
-  border-radius: 20px;
-  padding: 20px;
-  backdrop-filter: blur(10px);
-  box-shadow: 0px 10px 30px rgba(0,0,0,0.3);
-  animation: floatCard 4s ease-in-out infinite;
-}
-
-@keyframes floatCard {
-  0% {
-    transform: translateY(0px);
-  }
-  50% {
-    transform: translateY(-8px);
-  }
-  100% {
-    transform: translateY(0px);
-  }
-}
-
-.video-card {
-  flex: 2;
-}
-
-.status-card {
+.dashboard {
   flex: 1;
+  display: flex;
+  gap: 15px;
+  min-height: 0;
+}
+
+/* VIDEO SIDE */
+.video-card {
+  flex: 2.5;
+  background: #2f3f6d;
+  border-radius: 18px;
+  padding: 15px;
+  color: white;
+  display: flex;
+  flex-direction: column;
+}
+
+.video-card h2 {
+  text-align: center;
+  margin-bottom: 10px;
+}
+
+.video-wrapper {
+  flex: 1;
+  max-height: 430px;   /* important */
+  border-radius: 15px;
+  overflow: hidden;
+  background: black;
 }
 
 .video-feed {
   width: 100%;
-  height: 500px;
+  height: 100%;
   object-fit: cover;
-  border-radius: 15px;
+}
+
+/* STATUS SIDE */
+.status-card {
+  flex: 1;
+  background: #2f3f6d;
+  border-radius: 18px;
+  padding: 15px;
+  color: white;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.status-card h2 {
+  text-align: center;
 }
 
 .info-box {
-  background: rgba(255,255,255,0.05);
+  background: #41517f;
   padding: 15px;
-  margin-top: 15px;
-  border-radius: 15px;
+  border-radius: 12px;
+  text-align: center;
 }
 
 .info-box p {
   font-size: 14px;
-  opacity: 0.7;
 }
 
 .info-box h3 {
-  font-size: 24px;
-  margin-top: 5px;
+  margin-top: 6px;
+  font-size: 22px;
 }
 
-.control-card {
-  margin-top: 20px;
+.speed-box {
+  margin-top: auto;
+  background: linear-gradient(135deg, #00d2ff, #3a47d5);
+  padding: 15px;
+  border-radius: 12px;
   text-align: center;
 }
 
-.control-card button {
-  margin: 10px;
-  padding: 15px 25px;
-  border: none;
-  border-radius: 12px;
-  background: #111827;
+/* CONTROL SECTION */
+.control-card {
+  height: 120px;
+  margin-top: 12px;
+  background: #2f3f6d;
+  border-radius: 18px;
+  padding: 15px;
   color: white;
-  font-size: 16px;
-  cursor: pointer;
-  transition: 0.3s;
-}
-
-.control-card button:hover {
-  transform: scale(1.1);
-  box-shadow: 0 0 20px cyan;
-}
-
-/* Dynamic action colors */
-.action.brake {
-  color: red;
-}
-
-.action.move {
-  color: limegreen;
-}
-
-.action.stop {
-  color: orange;
-}
-
-.action.left {
-  color: yellow;
-}
-
-.action.right {
-  color: cyan;
-}
-
-/* Responsive */
-@media (max-width: 900px) {
-  .top-section {
-    flex-direction: column;
-  }
-
-  .video-feed {
-    height: 300px;
-  }
-}
-
-.status-card {
-  flex: 1;
-  animation: pulseGlow 2s infinite;
-}
-
-@keyframes pulseGlow {
-  0% {
-    box-shadow: 0 0 10px rgba(0,255,255,0.2);
-  }
-  50% {
-    box-shadow: 0 0 30px rgba(0,255,255,0.8);
-  }
-  100% {
-    box-shadow: 0 0 10px rgba(0,255,255,0.2);
-  }
-}
-
-.video-card {
-  position: relative;
-  overflow: hidden;
-}
-
-.video-card::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 50%;
-  height: 100%;
-  background: rgba(0,255,255,0.2);
-  transform: skewX(-20deg);
-  animation: scanner 3s infinite;
-}
-
-@keyframes scanner {
-  100% {
-    left: 150%;
-  }
-}
-
-
-
-
-
-.speedometer {
-  display: flex;
-  justify-content: center;
-  margin-top: 20px;
-}
-
-.outer-circle {
-  width: 180px;
-  height: 180px;
-  border-radius: 50%;
-  background: conic-gradient(
-    cyan 0deg,
-    blue 120deg,
-    purple 240deg,
-    cyan 360deg
-  );
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  animation: rotateSpeed 4s linear infinite;
-  box-shadow: 0 0 30px cyan;
-}
-
-.inner-circle {
-  width: 140px;
-  height: 140px;
-  border-radius: 50%;
-  background: #111827;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  color: white;
-  font-weight: bold;
-}
-
-.inner-circle span {
-  font-size: 38px;
-}
-
-.inner-circle p {
-  font-size: 16px;
-  opacity: 0.8;
-}
-
-@keyframes rotateSpeed {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+  text-align: center;
+  flex-shrink: 0;
 }
