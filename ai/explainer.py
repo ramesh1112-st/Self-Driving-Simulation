@@ -1,22 +1,39 @@
 import os
 from dotenv import load_dotenv
-import google.generativeai as genai
+from groq import Groq
 
+# Load environment variables
 load_dotenv()
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-
-model = genai.GenerativeModel("gemini-1.5-flash-latest")
+# Initialize Groq client
+client = Groq(
+    api_key=os.getenv("GROQ_API_KEY")
+)
 
 def explain_decision(data):
-    prompt = f"""
-    Explain this self-driving action:
+    try:
+        prompt = f"""
+        Explain this self-driving car decision in simple and short words:
 
-    Object: {data['object']}
-    Distance: {data['distance']}
-    Action: {data['action']}
-    """
+        Object detected: {data['object']}
+        Distance: {data['distance']}
+        Action taken: {data['action']}
 
-    response = model.generate_content(prompt)
+        Why did the car take this action?
+        """
 
-    return response.text
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        )
+
+        explanation = response.choices[0].message.content
+        return explanation
+
+    except Exception as e:
+        return f"Error in explanation: {str(e)}"

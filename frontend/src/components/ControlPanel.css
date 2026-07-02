@@ -1,26 +1,58 @@
 .controls {
-  display: flex;
-  justify-content: center;
-  gap: 20px;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(86px, 1fr));
+  gap: 10px;
 }
 
 .controls button {
-  padding: 14px 28px;
-  border: none;
-  border-radius: 14px;
-  background: linear-gradient(135deg, #00d2ff, #3a47d5);
-  color: white;
-  font-size: 17px;
-  font-weight: bold;
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  color: #ffffff;
+  font-weight: 800;
+  letter-spacing: 0;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease;
 }
 
 .controls button:hover {
-  transform: translateY(-4px) scale(1.05);
-  box-shadow: 0 0 20px #00d2ff;
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.35);
 }
 
 .controls button:active {
-  transform: scale(0.95);
+  transform: translateY(0);
+}
+
+.controls button.active {
+  outline: 2px solid rgba(143, 201, 255, 0.55);
+  outline-offset: 2px;
+}
+
+.controls .primary {
+  background: #1976d2;
+}
+
+.controls .secondary {
+  background: #2b3f53;
+}
+
+.controls .danger {
+  background: #c7353f;
+}
+
+@media (max-width: 940px) {
+  .controls {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
