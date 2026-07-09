@@ -1,0 +1,26 @@
+{
+  "name": "self-driving-simulation",
+  "version": "1.0.0",
+  "description": "",
+  "main": "backend-server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ramesh1112-st/Self-Driving-Simulation.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/ramesh1112-st/Self-Driving-Simulation/issues"
+  },
+  "homepage": "https://github.com/ramesh1112-st/Self-Driving-Simulation#readme",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "socket.io": "^4.8.3"
+  }
+}

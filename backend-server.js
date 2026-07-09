@@ -1,7 +1,7 @@
-const express = require("./backend/node_modules/express");
+const express = require("express");
 const http = require("http");
-const { Server } = require("./backend/node_modules/socket.io");
-const cors = require("./backend/node_modules/cors");
+const { Server } = require("socket.io");
+const cors = require("cors");
 
 const PORT = process.env.PORT || 5000;
 const MAX_LOGS = 100;
@@ -13,6 +13,7 @@ app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 
 const server = http.createServer(app);
+
 const io = new Server(server, {
   cors: {
     origin: process.env.CLIENT_ORIGIN || "*",
@@ -43,7 +44,10 @@ function stamp(payload = {}) {
 
 function normalizeCommand(payload) {
   if (typeof payload === "string") {
-    return stamp({ command: payload, source: "legacy-client" });
+    return stamp({
+      command: payload,
+      source: "legacy-client",
+    });
   }
 
   return stamp({
@@ -63,9 +67,7 @@ function publishState(target = io) {
 function publishStateThrottled() {
   const now = Date.now();
 
-  if (now - lastStatePublishAt < STATE_PUBLISH_INTERVAL_MS) {
-    return;
-  }
+  if (now - lastStatePublishAt < STATE_PUBLISH_INTERVAL_MS) return;
 
   lastStatePublishAt = now;
   publishState();
@@ -81,6 +83,7 @@ function addLog(data) {
 
 io.on("connection", (socket) => {
   console.log("Connected:", socket.id);
+
   publishState(socket);
 
   socket.on("request_state", () => {
@@ -108,6 +111,7 @@ io.on("connection", (socket) => {
 
     state.lastDetection = detection;
     state.updatedAt = detection.timestamp;
+
     addLog(detection);
 
     console.log("Detection:", detection);
@@ -120,6 +124,7 @@ io.on("connection", (socket) => {
     const explanation = stamp(payload);
 
     console.log("AI Explanation:", explanation);
+
     io.emit("show_explanation", explanation);
   });
 
@@ -163,6 +168,10 @@ io.on("connection", (socket) => {
   });
 });
 
+app.get("/", (req, res) => {
+  res.send("Self Driving Backend Running");
+});
+
 app.get("/health", (req, res) => {
   res.json({
     ok: true,
@@ -182,10 +191,6 @@ app.get("/logs", (req, res) => {
   res.json(state.logs);
 });
 
-app.get("/", (req, res) => {
-  res.send("Self-driving backend running");
-});
-
 function startServer(port = PORT) {
   return server.listen(port, () => {
     console.log(`Server running on port ${port}`);
@@ -197,13 +202,13 @@ if (require.main === module) {
 }
 
 module.exports = {
-  addLog,
   app,
+  server,
   io,
+  state,
+  startServer,
+  addLog,
+  stamp,
   normalizeCommand,
   publishStateThrottled,
-  server,
-  stamp,
-  startServer,
-  state,
 };
