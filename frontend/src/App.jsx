@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import socket from "./socket";
 import ControlPanel from "./components/ControlPanel";
 import { createFrameUrl } from "./frameUtils";
+import { getMissionSummary } from "./missionUtils";
 import "./App.css";
 
 const defaultTelemetry = {
@@ -24,6 +25,81 @@ function formatTime(value) {
   }).format(new Date(value));
 }
 
+function LoginPage({
+  vehicles,
+  selectedVehicleId,
+  setSelectedVehicleId,
+  username,
+  setUsername,
+  password,
+  setPassword,
+  authError,
+  authPending,
+  onSubmit,
+}) {
+  return (
+    <main className="login-shell">
+      <section className="login-panel" aria-labelledby="login-title">
+        <div>
+          <p className="eyebrow">Secure vehicle access</p>
+          <h1 id="login-title">Car Login</h1>
+          <p className="login-copy">
+            Choose the vehicle you want to control and enter its access code.
+          </p>
+        </div>
+
+        <form className="login-form" onSubmit={onSubmit}>
+          <label>
+            <span>Vehicle</span>
+            <select
+              value={selectedVehicleId}
+              onChange={(event) => setSelectedVehicleId(event.target.value)}
+            >
+              {vehicles.map((vehicle) => (
+                <option key={vehicle.id} value={vehicle.id}>
+                  {vehicle.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span>Username</span>
+            <input
+              autoComplete="username"
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+              placeholder="admin, driver, or viewer"
+            />
+          </label>
+
+          <label>
+            <span>Password</span>
+            <input
+              autoComplete="current-password"
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="Enter password"
+            />
+          </label>
+
+          {authError ? <p className="auth-error">{authError}</p> : null}
+
+          <button type="submit" disabled={authPending}>
+            {authPending ? "Checking access..." : "Unlock Control Room"}
+          </button>
+        </form>
+
+        <p className="login-hint">
+          Demo users: admin/admin123, driver/driver123, viewer/viewer123. Admin can
+          control every car, driver can control assigned cars, and viewer is read-only.
+        </p>
+      </section>
+    </main>
+  );
+}
+
 function App() {
   const [telemetry, setTelemetry] = useState(defaultTelemetry);
   const [frame, setFrame] = useState("");
@@ -32,6 +108,14 @@ function App() {
   const [connected, setConnected] = useState(socket.connected);
   const [videoMode, setVideoMode] = useState("waiting");
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [vehicles, setVehicles] = useState([{ id: "car-01", name: "Car 01" }]);
+  const [selectedVehicleId, setSelectedVehicleId] = useState("car-01");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [session, setSession] = useState(null);
+  const [authError, setAuthError] = useState("");
+  const [authPending, setAuthPending] = useState(false);
+  const [commandWarning, setCommandWarning] = useState("");
   const videoRef = useRef(null);
   const peerConnectionRef = useRef(null);
   const requestingWebRtcRef = useRef(false);
@@ -248,6 +332,22 @@ function App() {
       });
     };
 
+    const handleVehicleSession = (nextSession) => {
+      setSession(nextSession);
+      setAuthError("");
+      setCommandWarning("");
+
+      if (nextSession?.token) {
+        localStorage.setItem("vehicleSessionToken", nextSession.token);
+      } else {
+        localStorage.removeItem("vehicleSessionToken");
+      }
+    };
+
+    const handleCommandRejected = (payload) => {
+      setCommandWarning(payload?.reason || "Command rejected.");
+    };
+
     socket.on("connect", handleConnect);
     socket.on("disconnect", handleDisconnect);
     socket.on("ai_data", handleAiData);
@@ -257,8 +357,38 @@ function App() {
     socket.on("show_explanation", handleExplanation);
     socket.on("webrtc_status", handleWebRtcStatus);
     socket.on("webrtc_answer", handleWebRtcAnswer);
+    socket.on("vehicle_session", handleVehicleSession);
+    socket.on("command_rejected", handleCommandRejected);
 
     socket.emit("request_state");
+    socket.emit("request_vehicles", (response) => {
+      if (response?.ok && Array.isArray(response.vehicles) && response.vehicles.length) {
+        setVehicles(response.vehicles);
+        setSelectedVehicleId((current) =>
+          response.vehicles.some((vehicle) => vehicle.id === current)
+            ? current
+            : response.vehicles[0].id,
+        );
+      }
+    });
+
+    const savedToken = localStorage.getItem("vehicleSessionToken");
+
+    if (savedToken) {
+      socket.emit("session_restore", { token: savedToken }, (response) => {
+        if (!response?.ok) {
+          localStorage.removeItem("vehicleSessionToken");
+          return;
+        }
+
+        setSession(response.session);
+
+        if (Array.isArray(response.vehicles) && response.vehicles.length) {
+          setVehicles(response.vehicles);
+          setSelectedVehicleId(response.session.vehicle.id);
+        }
+      });
+    }
 
     return () => {
       socket.off("connect", handleConnect);
@@ -270,17 +400,81 @@ function App() {
       socket.off("show_explanation", handleExplanation);
       socket.off("webrtc_status", handleWebRtcStatus);
       socket.off("webrtc_answer", handleWebRtcAnswer);
+      socket.off("vehicle_session", handleVehicleSession);
+      socket.off("command_rejected", handleCommandRejected);
       closeWebRtc();
     };
   }, []);
 
-  const riskLevel = useMemo(() => {
-    const action = String(telemetry.action || "").toUpperCase();
+  const missionSummary = useMemo(
+    () => getMissionSummary({ telemetry, connected, session }),
+    [telemetry, connected, session],
+  );
+  const riskLevel = missionSummary.riskLevel;
 
-    if (["STOP", "BRAKE", "EMERGENCY"].includes(action)) return "critical";
-    if (["SLOW", "LEFT", "RIGHT"].includes(action)) return "warning";
-    return "normal";
-  }, [telemetry.action]);
+  const handleLogin = (event) => {
+    event.preventDefault();
+    setAuthError("");
+    setCommandWarning("");
+
+    if (!username.trim() || !password.trim()) {
+      setAuthError("Username and password are required.");
+      return;
+    }
+
+    setAuthPending(true);
+
+    socket.emit(
+      "vehicle_login",
+      {
+        vehicleId: selectedVehicleId,
+        username,
+        password,
+      },
+      (response) => {
+        setAuthPending(false);
+
+        if (!response?.ok) {
+          setAuthError(response?.error || "Login failed.");
+          return;
+        }
+
+        setSession(response.session);
+        localStorage.setItem("vehicleSessionToken", response.session.token);
+        setPassword("");
+
+        if (Array.isArray(response.vehicles) && response.vehicles.length) {
+          setVehicles(response.vehicles);
+          setSelectedVehicleId(response.session.vehicle.id);
+        }
+      },
+    );
+  };
+
+  const handleLogout = () => {
+    socket.emit("vehicle_logout");
+    setSession(null);
+    setPassword("");
+    setCommandWarning("");
+    localStorage.removeItem("vehicleSessionToken");
+  };
+
+  if (!session) {
+    return (
+      <LoginPage
+        vehicles={vehicles}
+        selectedVehicleId={selectedVehicleId}
+        setSelectedVehicleId={setSelectedVehicleId}
+        username={username}
+        setUsername={setUsername}
+        password={password}
+        setPassword={setPassword}
+        authError={authError}
+        authPending={authPending}
+        onSubmit={handleLogin}
+      />
+    );
+  }
 
   return (
     <main className="app-shell">
@@ -288,15 +482,37 @@ function App() {
         <div>
           <p className="eyebrow">Real-time autonomous vehicle project</p>
           <h1>Self Driving Control Room</h1>
+          <p className="session-copy">
+            {session.vehicle.name} unlocked for {session.user.displayName} ({session.role})
+          </p>
         </div>
 
-        <div className={`connection-pill ${connected ? "online" : "offline"}`}>
-          <span />
-          {connected ? "Live backend connected" : "Backend offline"}
+        <div className="topbar-actions">
+          <div className={`connection-pill ${connected ? "online" : "offline"}`}>
+            <span />
+            {connected ? "Live backend connected" : "Backend offline"}
+          </div>
+          <button className="logout-button" type="button" onClick={handleLogout}>
+            Lock car
+          </button>
         </div>
       </header>
 
+      {commandWarning ? <p className="command-warning">{commandWarning}</p> : null}
+
       <section className="dashboard-grid">
+        <div className="status-banner" aria-label="Mission status overview">
+          <div>
+            <p className="eyebrow">Operations overview</p>
+            <h2>{missionSummary.riskLabel}</h2>
+          </div>
+          <div className="status-banner-meta">
+            <span>{missionSummary.connectionLabel}</span>
+            <span>{missionSummary.autonomyLabel}</span>
+            <span>{missionSummary.operatorRole}</span>
+          </div>
+        </div>
+
         <div className="camera-panel">
           <div className="panel-header">
             <div>
@@ -390,7 +606,13 @@ function App() {
               <h2>Send drive command</h2>
             </div>
           </div>
-          <ControlPanel activeCommand={telemetry.mode || telemetry.action} />
+          {!["admin", "driver"].includes(session.role) ? (
+            <p className="readonly-note">This account has view-only access to the selected car.</p>
+          ) : null}
+          <ControlPanel
+            activeCommand={telemetry.mode || telemetry.action}
+            disabled={!["admin", "driver"].includes(session.role)}
+          />
         </section>
 
         <section className="log-panel">

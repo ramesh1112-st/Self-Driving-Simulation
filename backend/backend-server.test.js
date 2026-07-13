@@ -3,9 +3,15 @@ const { describe, it, beforeEach } = require("node:test");
 
 const {
   addLog,
+  authenticateUser,
+  canSendDriveCommand,
+  database,
+  getPermittedVehicles,
   normalizeCommand,
+  publicVehicles,
   stamp,
   state,
+  verifySessionToken,
 } = require("../backend-server");
 
 describe("backend helpers", () => {
@@ -49,5 +55,80 @@ describe("backend helpers", () => {
     assert.equal(state.logs.length, 100);
     assert.equal(state.logs[0].index, 5);
     assert.equal(state.logs.at(-1).index, 104);
+  });
+
+  it("authenticates users with vehicle permissions", () => {
+    const result = authenticateUser({
+      username: "driver",
+      password: "driver123",
+      vehicleId: "car-01",
+      ipAddress: "test-auth-success",
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.session.user.username, "driver");
+    assert.equal(result.session.vehicle.id, "car-01");
+    assert.equal(result.session.role, "driver");
+  });
+
+  it("rejects invalid user credentials and vehicle permissions", () => {
+    assert.equal(
+      authenticateUser({
+        username: "driver",
+        password: "wrong",
+        vehicleId: "car-01",
+        ipAddress: "test-auth-fail-password",
+      }).ok,
+      false,
+    );
+    assert.equal(
+      authenticateUser({
+        username: "viewer",
+        password: "viewer123",
+        vehicleId: "car-03",
+        ipAddress: "test-auth-fail-permission",
+      }).ok,
+      false,
+    );
+  });
+
+  it("does not expose secrets in public vehicle data", () => {
+    const vehicles = publicVehicles();
+
+    assert.equal(vehicles.length, 3);
+    assert.deepEqual(vehicles[0], { id: "car-01", name: "Car 01" });
+    assert.equal(Object.hasOwn(vehicles[0], "accessCode"), false);
+  });
+
+  it("restores signed session tokens", () => {
+    const result = authenticateUser({
+      username: "admin",
+      password: "admin123",
+      vehicleId: "car-03",
+      ipAddress: "test-token",
+    });
+    const restored = verifySessionToken(result.session.token);
+
+    assert.equal(restored.user.username, "admin");
+    assert.equal(restored.vehicle.id, "car-03");
+    assert.equal(restored.role, "admin");
+  });
+
+  it("returns vehicles permitted for a user", () => {
+    assert.deepEqual(
+      getPermittedVehicles("user-viewer"),
+      [{ id: "car-01", name: "Car 01", permission: "viewer" }],
+    );
+  });
+
+  it("allows only admin and driver roles to send commands", () => {
+    assert.equal(canSendDriveCommand({ role: "admin" }), true);
+    assert.equal(canSendDriveCommand({ role: "driver" }), true);
+    assert.equal(canSendDriveCommand({ role: "viewer" }), false);
+    assert.equal(canSendDriveCommand(null), false);
+  });
+
+  it("stores audit logs for auth events", () => {
+    assert.ok(database.auditLogs.some((entry) => entry.event === "login_succeeded"));
   });
 });

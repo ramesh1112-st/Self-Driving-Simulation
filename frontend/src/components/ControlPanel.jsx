@@ -10,8 +10,10 @@ export const commands = [
   { label: "Slow", value: "SLOW", variant: "secondary" },
 ];
 
-function ControlPanel({ activeCommand = "AUTO" }) {
+function ControlPanel({ activeCommand = "AUTO", disabled = false }) {
   const sendCommand = (command) => {
+    if (disabled) return;
+
     socket.emit("control_command", command);
   };
 
@@ -21,6 +23,7 @@ function ControlPanel({ activeCommand = "AUTO" }) {
         <button
           className={`${item.variant} ${activeCommand === item.value ? "active" : ""}`}
           key={item.value}
+          disabled={disabled}
           onClick={() => sendCommand(item.value)}
           type="button"
         >
