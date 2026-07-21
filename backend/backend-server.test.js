@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const { describe, it, beforeEach } = require("node:test");
+const prisma = require("./db/prisma");
 
 const {
   addLog,
@@ -55,6 +56,10 @@ describe("backend helpers", () => {
     assert.equal(state.logs.length, 100);
     assert.equal(state.logs[0].index, 5);
     assert.equal(state.logs.at(-1).index, 104);
+  });
+
+  it("rejects unsupported drive commands", () => {
+    assert.equal(normalizeCommand("ACCELERATE"), null);
   });
 
   it("authenticates users with vehicle permissions", () => {
@@ -122,10 +127,30 @@ describe("backend helpers", () => {
   });
 
   it("allows only admin and driver roles to send commands", () => {
-    assert.equal(canSendDriveCommand({ role: "admin" }), true);
-    assert.equal(canSendDriveCommand({ role: "driver" }), true);
-    assert.equal(canSendDriveCommand({ role: "viewer" }), false);
+    assert.equal(
+      canSendDriveCommand({ user: { id: "user-admin" }, vehicle: { id: "car-01" } }),
+      true,
+    );
+    assert.equal(
+      canSendDriveCommand({ user: { id: "user-driver" }, vehicle: { id: "car-01" } }),
+      true,
+    );
+    assert.equal(
+      canSendDriveCommand({ user: { id: "user-viewer" }, vehicle: { id: "car-01" } }),
+      false,
+    );
     assert.equal(canSendDriveCommand(null), false);
+  });
+
+  it("requires an active vehicle permission before allowing a command", () => {
+    assert.equal(
+      canSendDriveCommand({
+        user: { id: "user-driver" },
+        vehicle: { id: "car-03" },
+        role: "driver",
+      }),
+      false,
+    );
   });
 
   it("stores audit logs for auth events", () => {

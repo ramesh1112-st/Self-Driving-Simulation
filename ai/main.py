@@ -58,8 +58,12 @@ while True:
     # Reduce resolution before detection to improve latency
     frame = cv2.resize(frame, CAPTURE_SIZE)
 
-    # Run YOLO detection
+    start = time.time()
     results = model.predict(frame, imgsz=DETECT_SIZE, verbose=False)
+    inference_time = time.time() - start
+    fps = 1.0 / inference_time if inference_time > 0 else 0
+
+    print(f"Inference time: {inference_time:.3f}s, FPS: {fps:.2f}")
 
     # Draw boxes
     annotated_frame = results[0].plot()

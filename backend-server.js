@@ -5,8 +5,9 @@ const http = require("http");
 const path = require("path");
 const { Server } = require("socket.io");
 const cors = require("cors");
+const prisma = require("./backend/db/prisma");
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 const MAX_LOGS = 100;
 const MAX_AUDIT_LOGS = 1000;
 const STATE_PUBLISH_INTERVAL_MS = 250;
@@ -15,6 +16,8 @@ const AUTH_SECRET = process.env.AUTH_SECRET || "dev-secret-change-before-product
 const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS || 1000 * 60 * 60 * 8);
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 1000 * 60 * 15);
 const RATE_LIMIT_MAX_ATTEMPTS = Number(process.env.RATE_LIMIT_MAX_ATTEMPTS || 5);
+const CONTROL_ROLES = new Set(["admin", "driver"]);
+const VALID_DRIVE_COMMANDS = new Set(["AUTO", "STOP", "BRAKE", "LEFT", "RIGHT", "SLOW"]);
 let lastStatePublishAt = 0;
 
 const app = express();
@@ -47,100 +50,6 @@ const state = {
 const vehicleSessions = new Map();
 const loginAttempts = new Map();
 
-function createDefaultDatabase() {
-  return {
-    users: [
-      {
-        id: "user-admin",
-        username: "admin",
-        displayName: "Admin Operator",
-        role: "admin",
-        password: {
-          salt: "seed-admin",
-          hash: "dc5372934b17cc01bf9ada62dc8c75b7249b158af8f0bb7cf340530f6f4aebb0",
-        },
-      },
-      {
-        id: "user-driver",
-        username: "driver",
-        displayName: "Vehicle Driver",
-        role: "driver",
-        password: {
-          salt: "seed-driver",
-          hash: "792418f9576e7aaa2b9b6171a6929c50cb70e0476e5ecb7aa081e8920b75f758",
-        },
-      },
-      {
-        id: "user-viewer",
-        username: "viewer",
-        displayName: "Read Only Viewer",
-        role: "viewer",
-        password: {
-          salt: "seed-viewer",
-          hash: "d5c81c6ea6a3973e0747f3a3b88e216f7c172fc270bc5997d1a7566c568428a6",
-        },
-      },
-    ],
-    vehicles: [
-      { id: "car-01", name: "Car 01" },
-      { id: "car-02", name: "Car 02" },
-      { id: "car-03", name: "Car 03" },
-    ],
-    vehiclePermissions: [
-      { userId: "user-admin", vehicleId: "car-01", role: "admin" },
-      { userId: "user-admin", vehicleId: "car-02", role: "admin" },
-      { userId: "user-admin", vehicleId: "car-03", role: "admin" },
-      { userId: "user-driver", vehicleId: "car-01", role: "driver" },
-      { userId: "user-driver", vehicleId: "car-02", role: "driver" },
-      { userId: "user-viewer", vehicleId: "car-01", role: "viewer" },
-    ],
-    auditLogs: [],
-  };
-}
-
-function ensureDatabaseShape(data) {
-  const defaults = createDefaultDatabase();
-
-  return {
-    users: Array.isArray(data?.users) ? data.users : defaults.users,
-    vehicles: Array.isArray(data?.vehicles) ? data.vehicles : defaults.vehicles,
-    vehiclePermissions: Array.isArray(data?.vehiclePermissions)
-      ? data.vehiclePermissions
-      : defaults.vehiclePermissions,
-    auditLogs: Array.isArray(data?.auditLogs) ? data.auditLogs : [],
-  };
-}
-
-function persistDatabase() {
-  fs.mkdirSync(path.dirname(AUTH_DB_PATH), { recursive: true });
-  const tempPath = `${AUTH_DB_PATH}.tmp`;
-  fs.writeFileSync(tempPath, JSON.stringify(database, null, 2));
-  fs.renameSync(tempPath, AUTH_DB_PATH);
-}
-
-function loadDatabase() {
-  if (!fs.existsSync(AUTH_DB_PATH)) {
-    const initialDatabase = createDefaultDatabase();
-    fs.mkdirSync(path.dirname(AUTH_DB_PATH), { recursive: true });
-    fs.writeFileSync(AUTH_DB_PATH, JSON.stringify(initialDatabase, null, 2));
-    return initialDatabase;
-  }
-
-  return ensureDatabaseShape(JSON.parse(fs.readFileSync(AUTH_DB_PATH, "utf8")));
-}
-
-const database = loadDatabase();
-
-function hashPassword(password, salt) {
-  return crypto.pbkdf2Sync(password, salt, 100000, 32, "sha256").toString("hex");
-}
-
-function timingSafeEqualHex(left, right) {
-  const leftBuffer = Buffer.from(left, "hex");
-  const rightBuffer = Buffer.from(right, "hex");
-
-  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
-}
 
 function publicUser(user) {
   if (!user) return null;
@@ -153,52 +62,66 @@ function publicUser(user) {
   };
 }
 
-function publicVehicles() {
-  return database.vehicles.map(({ id, name }) => ({ id, name }));
+async function publicVehicles() {
+  const vehicles = await prisma.vehicle.findMany();
+
+  return vehicles.map(({ id, name }) => ({
+    id,
+    name,
+  }));
 }
 
-function findUserByUsername(username) {
-  return database.users.find(
-    (user) => user.username.toLowerCase() === String(username || "").trim().toLowerCase(),
-  );
+async function findUserByUsername(username) {
+  return await prisma.user.findUnique({
+    where: {
+      username: username,
+    },
+  });
 }
 
-function findVehicle(vehicleId) {
-  return database.vehicles.find((vehicle) => vehicle.id === vehicleId);
+async function findVehicle(vehicleId) {
+  return await prisma.vehicle.findUnique({
+    where: {
+      id: vehicleId,
+    },
+  });
 }
 
-function getVehiclePermission(userId, vehicleId) {
-  return database.vehiclePermissions.find(
-    (permission) => permission.userId === userId && permission.vehicleId === vehicleId,
-  );
+async function getVehiclePermission(userId, vehicleId) {
+  return await prisma.vehiclePermission.findUnique({
+    where: {
+      userId_vehicleId: {
+        userId,
+        vehicleId,
+      },
+    },
+  });
 }
 
-function getPermittedVehicles(userId) {
-  return database.vehiclePermissions
-    .filter((permission) => permission.userId === userId)
-    .map((permission) => {
-      const vehicle = findVehicle(permission.vehicleId);
-      return vehicle ? { ...vehicle, permission: permission.role } : null;
-    })
-    .filter(Boolean);
+async function getPermittedVehicles(userId) {
+  const permissions = await prisma.vehiclePermission.findMany({
+    where: {
+      userId,
+    },
+    include: {
+      vehicle: true,
+    },
+  });
+
+  return permissions.map((permission) => ({
+    id: permission.vehicle.id,
+    name: permission.vehicle.name,
+    permission: permission.role,
+  }));
 }
 
-function appendAuditLog(event, details = {}) {
-  const entry = {
-    id: crypto.randomUUID(),
-    event,
-    timestamp: new Date().toISOString(),
-    ...details,
-  };
-
-  database.auditLogs.push(entry);
-
-  if (database.auditLogs.length > MAX_AUDIT_LOGS) {
-    database.auditLogs = database.auditLogs.slice(-MAX_AUDIT_LOGS);
-  }
-
-  persistDatabase();
-  return entry;
+async function appendAuditLog(event, details = {}) {
+  return await prisma.auditLog.create({
+    data: {
+      event,
+      ...details,
+    },
+  });
 }
 
 function isRateLimited(key, now = Date.now()) {
@@ -251,7 +174,7 @@ function createSessionToken(session) {
   return `${header}.${payload}.${signSessionPayload(`${header}.${payload}`)}`;
 }
 
-function verifySessionToken(token) {
+async function verifySessionToken(token) {
   try {
     const parts = String(token || "").split(".");
 
@@ -275,9 +198,18 @@ function verifySessionToken(token) {
       return null;
     }
 
-    const user = database.users.find((item) => item.id === claims.sub);
-    const vehicle = findVehicle(claims.vehicleId);
-    const permission = user && vehicle ? getVehiclePermission(user.id, vehicle.id) : null;
+    const user = await prisma.user.findUnique({
+  where: {
+    id: claims.sub,
+  },
+});
+
+const vehicle = await findVehicle(claims.vehicleId);
+
+const permission =
+  user && vehicle
+    ? await getVehiclePermission(user.id, vehicle.id)
+    : null;
 
     if (!user || !vehicle || !permission) {
       return null;
@@ -303,7 +235,7 @@ function createSession(user, vehicle, role, token = null) {
   };
 }
 
-function authenticateUser({ username, password, vehicleId, ipAddress = "unknown" }) {
+async function authenticateUser({ username, password, vehicleId, ipAddress = "unknown" }) {
   const cleanUsername = String(username || "").trim();
   const rateLimitKey = `${ipAddress}:${cleanUsername.toLowerCase() || "anonymous"}`;
 
@@ -312,11 +244,15 @@ function authenticateUser({ username, password, vehicleId, ipAddress = "unknown"
     return { ok: false, error: "Too many failed login attempts. Try again later." };
   }
 
-  const user = findUserByUsername(cleanUsername);
-  const vehicle = findVehicle(vehicleId);
-  const passwordHash = user ? hashPassword(String(password || ""), user.password.salt) : "";
-  const passwordMatches = user && timingSafeEqualHex(passwordHash, user.password.hash);
-  const permission = user && vehicle ? getVehiclePermission(user.id, vehicle.id) : null;
+  const user = await findUserByUsername(cleanUsername);
+  const vehicle = await findVehicle(vehicleId);
+  const passwordMatches =
+  user && user.password === String(password || "");
+  const permission =
+  user && vehicle
+    ? await getVehiclePermission(user.id, vehicle.id)
+    : null;
+
 
   if (!user || !vehicle || !passwordMatches || !permission) {
     recordFailedLogin(rateLimitKey);
@@ -341,11 +277,17 @@ function authenticateUser({ username, password, vehicleId, ipAddress = "unknown"
     ipAddress,
   });
 
-  return { ok: true, session, vehicles: getPermittedVehicles(user.id) };
+  return { ok: true, session, vehicles: await getPermittedVehicles(user.id) };
 }
 
-function canSendDriveCommand(session) {
-  return ["admin", "driver"].includes(session?.role);
+async function canSendDriveCommand(session) {
+  if (!session?.user?.id || !session?.vehicle?.id) return false;
+
+  const permission = await getVehiclePermission(
+  session.user.id,
+  session.vehicle.id
+);
+  return Boolean(permission && CONTROL_ROLES.has(permission.role));
 }
 
 function stamp(payload = {}) {
@@ -356,15 +298,22 @@ function stamp(payload = {}) {
 }
 
 function normalizeCommand(payload) {
+  const rawCommand = typeof payload === "string" ? payload : payload?.command;
+  const command = String(rawCommand || "AUTO").trim().toUpperCase();
+
+  if (!VALID_DRIVE_COMMANDS.has(command)) {
+    return null;
+  }
+
   if (typeof payload === "string") {
     return stamp({
-      command: payload,
+      command,
       source: "legacy-client",
     });
   }
 
   return stamp({
-    command: payload?.command || "AUTO",
+    command,
     source: payload?.source || "dashboard",
     timestamp: payload?.timestamp,
   });
@@ -403,14 +352,14 @@ io.on("connection", (socket) => {
     publishState(socket);
   });
 
-  socket.on("request_vehicles", (reply) => {
+  socket.on("request_vehicles", async (reply) => {
     if (typeof reply === "function") {
-      reply({ ok: true, vehicles: publicVehicles() });
+      reply({ ok: true, vehicles: await publicVehicles() });
     }
   });
 
-  socket.on("session_restore", (payload = {}, reply) => {
-    const session = verifySessionToken(payload.token);
+  socket.on("session_restore", async (payload = {}, reply) => {
+    const session = await verifySessionToken(payload.token);
 
     if (!session) {
       if (typeof reply === "function") {
@@ -424,12 +373,12 @@ io.on("connection", (socket) => {
     socket.emit("vehicle_session", session);
 
     if (typeof reply === "function") {
-      reply({ ok: true, session, vehicles: getPermittedVehicles(session.user.id) });
+      reply({ ok: true, session, vehicles: await getPermittedVehicles(session.user.id) });
     }
   });
 
-  socket.on("vehicle_login", (payload = {}, reply) => {
-    const result = authenticateUser({
+  socket.on("vehicle_login", async (payload = {}, reply) => {
+    const result = await authenticateUser({
       username: payload.username,
       password: payload.password,
       vehicleId: payload.vehicleId,
@@ -452,11 +401,11 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("vehicle_logout", () => {
+  socket.on("vehicle_logout", async () => {
     const session = vehicleSessions.get(socket.id);
 
     if (session) {
-      appendAuditLog("logout", {
+      await appendAuditLog("logout", {
         userId: session.user.id,
         username: session.user.username,
         vehicleId: session.vehicle.id,
@@ -470,7 +419,7 @@ io.on("connection", (socket) => {
     socket.emit("vehicle_session", null);
   });
 
-  socket.on("control_command", (payload) => {
+  socket.on("control_command", async (payload) => {
     const session = vehicleSessions.get(socket.id);
 
     if (!session) {
@@ -484,23 +433,38 @@ io.on("connection", (socket) => {
       return;
     }
 
-    if (!canSendDriveCommand(session)) {
+    if (!await canSendDriveCommand(session)) {
       appendAuditLog("command_rejected", {
         userId: session.user.id,
         username: session.user.username,
         vehicleId: session.vehicle.id,
         vehicleName: session.vehicle.name,
         role: session.role,
-        reason: "role_not_allowed",
+        reason: "control_permission_denied",
         ipAddress: socket.handshake.address,
       });
       socket.emit("command_rejected", {
-        reason: "Your role can view this car but cannot send drive commands.",
+        reason: "You do not have permission to send drive commands for this vehicle.",
       });
       return;
     }
 
     const command = normalizeCommand(payload);
+
+    if (!command) {
+      appendAuditLog("command_rejected", {
+        userId: session.user.id,
+        username: session.user.username,
+        vehicleId: session.vehicle.id,
+        role: session.role,
+        reason: "invalid_command",
+        ipAddress: socket.handshake.address,
+      });
+      socket.emit("command_rejected", {
+        reason: "Unsupported drive command.",
+      });
+      return;
+    }
 
     state.mode = command.command === "AUTO" ? "AUTO" : "MANUAL";
     state.lastCommand = {
@@ -607,16 +571,22 @@ app.get("/state", (req, res) => {
   });
 });
 
-app.get("/vehicles", (req, res) => {
-  res.json(publicVehicles());
+app.get("/vehicles", async (req, res) => {
+  res.json(await publicVehicles());
 });
 
 app.get("/logs", (req, res) => {
   res.json(state.logs);
 });
 
-app.get("/audit-logs", (req, res) => {
-  res.json(database.auditLogs.slice().reverse());
+app.get("/audit-logs", async (req, res) => {
+    const logs = await prisma.auditLog.findMany({
+        orderBy: {
+            timestamp: "desc",
+        },
+    });
+
+    res.json(logs);
 });
 
 function startServer(port = PORT) {
@@ -642,7 +612,6 @@ module.exports = {
   authenticateUser,
   canSendDriveCommand,
   createSessionToken,
-  database,
   getPermittedVehicles,
   publicVehicles,
   verifySessionToken,

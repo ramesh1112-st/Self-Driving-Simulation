@@ -1,0 +1,63 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String                @id
+  username    String                @unique
+  displayName String
+  password    String
+  role        String
+
+  permissions VehiclePermission[]
+
+  createdAt DateTime @default(now())
+}
+
+model Vehicle {
+  id   String @id
+  name String
+
+  permissions VehiclePermission[]
+}
+
+model VehiclePermission {
+  id        String @id @default(cuid())
+
+  role      String
+
+  userId    String
+  vehicleId String
+
+  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vehicle    Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, vehicleId])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+
+  event       String
+  timestamp   DateTime @default(now())
+
+  userId       String?
+  username     String?
+
+  vehicleId    String?
+  vehicleName  String?
+
+  role         String?
+
+  ipAddress    String?
+
+  reason        String?
+  command       String?
+  source        String?
+  operator      String?
+}

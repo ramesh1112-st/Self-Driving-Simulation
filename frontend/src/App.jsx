@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import socket from "./socket";
 import ControlPanel from "./components/ControlPanel";
 import { createFrameUrl } from "./frameUtils";
-import { getMissionSummary } from "./missionUtils";
 import "./App.css";
 
 const defaultTelemetry = {
@@ -44,7 +43,7 @@ function LoginPage({
           <p className="eyebrow">Secure vehicle access</p>
           <h1 id="login-title">Car Login</h1>
           <p className="login-copy">
-            Choose the vehicle you want to control and enter its access code.
+            Sign in with your operator account, then select a vehicle you are authorized to access.
           </p>
         </div>
 
@@ -69,7 +68,7 @@ function LoginPage({
               autoComplete="username"
               value={username}
               onChange={(event) => setUsername(event.target.value)}
-              placeholder="admin, driver, or viewer"
+              placeholder="Enter your operator username"
             />
           </label>
 
@@ -92,8 +91,8 @@ function LoginPage({
         </form>
 
         <p className="login-hint">
-          Demo users: admin/admin123, driver/driver123, viewer/viewer123. Admin can
-          control every car, driver can control assigned cars, and viewer is read-only.
+          Access is assigned by role: admins and authorized drivers can send commands;
+          viewers have read-only access.
         </p>
       </section>
     </main>
@@ -406,11 +405,13 @@ function App() {
     };
   }, []);
 
-  const missionSummary = useMemo(
-    () => getMissionSummary({ telemetry, connected, session }),
-    [telemetry, connected, session],
-  );
-  const riskLevel = missionSummary.riskLevel;
+  const riskLevel = useMemo(() => {
+    const action = String(telemetry.action || "").toUpperCase();
+
+    if (["STOP", "BRAKE", "EMERGENCY"].includes(action)) return "critical";
+    if (["SLOW", "LEFT", "RIGHT"].includes(action)) return "warning";
+    return "normal";
+  }, [telemetry.action]);
 
   const handleLogin = (event) => {
     event.preventDefault();
@@ -501,18 +502,6 @@ function App() {
       {commandWarning ? <p className="command-warning">{commandWarning}</p> : null}
 
       <section className="dashboard-grid">
-        <div className="status-banner" aria-label="Mission status overview">
-          <div>
-            <p className="eyebrow">Operations overview</p>
-            <h2>{missionSummary.riskLabel}</h2>
-          </div>
-          <div className="status-banner-meta">
-            <span>{missionSummary.connectionLabel}</span>
-            <span>{missionSummary.autonomyLabel}</span>
-            <span>{missionSummary.operatorRole}</span>
-          </div>
-        </div>
-
         <div className="camera-panel">
           <div className="panel-header">
             <div>
