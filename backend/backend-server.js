@@ -5,13 +5,13 @@ const http = require("http");
 const path = require("path");
 const { Server } = require("socket.io");
 const cors = require("cors");
-const prisma = require("./backend/db/prisma");
+const prisma = require("./db/prisma");
 
 const PORT = process.env.PORT || 5001;
 const MAX_LOGS = 100;
 const MAX_AUDIT_LOGS = 1000;
 const STATE_PUBLISH_INTERVAL_MS = 250;
-const AUTH_DB_PATH = process.env.AUTH_DB_PATH || path.join(__dirname, "backend", "data", "auth-db.json");
+const AUTH_DB_PATH = process.env.AUTH_DB_PATH || path.join(__dirname,"data", "auth-db.json");
 const AUTH_SECRET = process.env.AUTH_SECRET || "dev-secret-change-before-production";
 const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS || 1000 * 60 * 60 * 8);
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 1000 * 60 * 15);
