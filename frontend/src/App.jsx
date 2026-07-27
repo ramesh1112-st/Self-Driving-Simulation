@@ -24,7 +24,7 @@ function formatTime(value) {
   }).format(new Date(value));
 }
 
-function LoginPage({
+function AuthPage({
   vehicles,
   selectedVehicleId,
   setSelectedVehicleId,
@@ -32,19 +32,49 @@ function LoginPage({
   setUsername,
   password,
   setPassword,
+  displayName,
+  setDisplayName,
+  confirmPassword,
+  setConfirmPassword,
   authError,
+  authMessage,
   authPending,
+  authMode,
+  setAuthMode,
   onSubmit,
 }) {
+  const isSignup = authMode === "signup";
+
   return (
     <main className="login-shell">
-      <section className="login-panel" aria-labelledby="login-title">
-        <div>
-          <p className="eyebrow">Secure vehicle access</p>
-          <h1 id="login-title">Car Login</h1>
-          <p className="login-copy">
-            Sign in with your operator account, then select a vehicle you are authorized to access.
-          </p>
+      <section className="login-panel" aria-labelledby="auth-title">
+        <div className="login-header">
+          <div>
+            <p className="eyebrow">Secure vehicle access</p>
+            <h1 id="auth-title">{isSignup ? "Create operator account" : "Car login"}</h1>
+            <p className="login-copy">
+              {isSignup
+                ? "Register a new operator account, then access the fleet dashboard for your vehicle."
+                : "Sign in with your operator account, then select a vehicle you are authorized to access."}
+            </p>
+          </div>
+
+          <div className="auth-toggle" role="tablist" aria-label="Authentication mode">
+            <button
+              type="button"
+              className={isSignup ? "toggle-button" : "toggle-button active"}
+              onClick={() => setAuthMode("login")}
+            >
+              Login
+            </button>
+            <button
+              type="button"
+              className={isSignup ? "toggle-button active" : "toggle-button"}
+              onClick={() => setAuthMode("signup")}
+            >
+              Sign up
+            </button>
+          </div>
         </div>
 
         <form className="login-form" onSubmit={onSubmit}>
@@ -62,6 +92,18 @@ function LoginPage({
             </select>
           </label>
 
+          {isSignup ? (
+            <label>
+              <span>Full name</span>
+              <input
+                autoComplete="name"
+                value={displayName}
+                onChange={(event) => setDisplayName(event.target.value)}
+                placeholder="Enter your full name"
+              />
+            </label>
+          ) : null}
+
           <label>
             <span>Username</span>
             <input
@@ -75,18 +117,38 @@ function LoginPage({
           <label>
             <span>Password</span>
             <input
-              autoComplete="current-password"
+              autoComplete={isSignup ? "new-password" : "current-password"}
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="Enter password"
+              placeholder={isSignup ? "Choose a strong password" : "Enter password"}
             />
           </label>
 
+          {isSignup ? (
+            <label>
+              <span>Confirm password</span>
+              <input
+                autoComplete="new-password"
+                type="password"
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                placeholder="Re-enter password"
+              />
+            </label>
+          ) : null}
+
           {authError ? <p className="auth-error">{authError}</p> : null}
+          {authMessage ? <p className="auth-success">{authMessage}</p> : null}
 
           <button type="submit" disabled={authPending}>
-            {authPending ? "Checking access..." : "Unlock Control Room"}
+            {authPending
+              ? isSignup
+                ? "Creating account..."
+                : "Checking access..."
+              : isSignup
+                ? "Create account"
+                : "Unlock Control Room"}
           </button>
         </form>
 
@@ -111,8 +173,12 @@ function App() {
   const [selectedVehicleId, setSelectedVehicleId] = useState("car-01");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [session, setSession] = useState(null);
+  const [authMode, setAuthMode] = useState("login");
   const [authError, setAuthError] = useState("");
+  const [authMessage, setAuthMessage] = useState("");
   const [authPending, setAuthPending] = useState(false);
   const [commandWarning, setCommandWarning] = useState("");
   const videoRef = useRef(null);
@@ -413,9 +479,10 @@ function App() {
     return "normal";
   }, [telemetry.action]);
 
-  const handleLogin = (event) => {
+  const handleAuthSubmit = (event) => {
     event.preventDefault();
     setAuthError("");
+    setAuthMessage("");
     setCommandWarning("");
 
     if (!username.trim() || !password.trim()) {
@@ -423,33 +490,63 @@ function App() {
       return;
     }
 
+    if (authMode === "signup") {
+      if (!displayName.trim()) {
+        setAuthError("Please enter your full name.");
+        return;
+      }
+
+      if (password !== confirmPassword) {
+        setAuthError("Passwords do not match.");
+        return;
+      }
+    }
+
     setAuthPending(true);
 
-    socket.emit(
-      "vehicle_login",
-      {
-        vehicleId: selectedVehicleId,
-        username,
-        password,
-      },
-      (response) => {
-        setAuthPending(false);
+    const payload = {
+      vehicleId: selectedVehicleId,
+      username,
+      password,
+    };
 
-        if (!response?.ok) {
-          setAuthError(response?.error || "Login failed.");
-          return;
-        }
+    const eventName = authMode === "signup" ? "user_signup" : "vehicle_login";
 
-        setSession(response.session);
-        localStorage.setItem("vehicleSessionToken", response.session.token);
+    socket.emit(eventName, authMode === "signup" ? {
+      ...payload,
+      displayName,
+      confirmPassword,
+      role: "viewer",
+    } : payload, (response) => {
+      setAuthPending(false);
+
+      if (!response?.ok) {
+        setAuthError(response?.error || "Authentication failed.");
+        return;
+      }
+
+      if (authMode === "signup") {
+        setAuthMode("login");
+        setUsername("");
         setPassword("");
+        setDisplayName("");
+        setConfirmPassword("");
+        setAuthMessage(response?.message || "Account created successfully. Please log in to continue.");
+        return;
+      }
 
-        if (Array.isArray(response.vehicles) && response.vehicles.length) {
-          setVehicles(response.vehicles);
-          setSelectedVehicleId(response.session.vehicle.id);
-        }
-      },
-    );
+      setSession(response.session);
+      localStorage.setItem("vehicleSessionToken", response.session.token);
+      setPassword("");
+      setConfirmPassword("");
+      setDisplayName("");
+      setAuthMessage("");
+
+      if (Array.isArray(response.vehicles) && response.vehicles.length) {
+        setVehicles(response.vehicles);
+        setSelectedVehicleId(response.session.vehicle.id);
+      }
+    });
   };
 
   const handleLogout = () => {
@@ -462,7 +559,7 @@ function App() {
 
   if (!session) {
     return (
-      <LoginPage
+      <AuthPage
         vehicles={vehicles}
         selectedVehicleId={selectedVehicleId}
         setSelectedVehicleId={setSelectedVehicleId}
@@ -470,9 +567,16 @@ function App() {
         setUsername={setUsername}
         password={password}
         setPassword={setPassword}
+        displayName={displayName}
+        setDisplayName={setDisplayName}
+        confirmPassword={confirmPassword}
+        setConfirmPassword={setConfirmPassword}
         authError={authError}
+        authMessage={authMessage}
         authPending={authPending}
-        onSubmit={handleLogin}
+        authMode={authMode}
+        setAuthMode={setAuthMode}
+        onSubmit={handleAuthSubmit}
       />
     );
   }

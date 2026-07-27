@@ -23,7 +23,7 @@ executor = ThreadPoolExecutor(max_workers=1)
 
 # Connect backend
 sio = socketio.Client()
-sio.connect("http://localhost:5000")
+sio.connect("http://localhost:5001")
 
 
 # Receive manual commands from frontend

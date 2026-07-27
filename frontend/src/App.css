@@ -59,6 +59,37 @@ select {
   letter-spacing: 0;
 }
 
+.login-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.auth-toggle {
+  display: inline-flex;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.toggle-button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #9ca8b4;
+  font-weight: 700;
+}
+
+.toggle-button.active {
+  background: #1976d2;
+  color: #ffffff;
+}
+
 .login-copy,
 .login-hint,
 .session-copy {
@@ -129,9 +160,16 @@ select {
 }
 
 .auth-error,
+.auth-success,
 .command-warning {
   margin: 0;
   color: #ffd7d9;
+  font-size: 14px;
+}
+
+.auth-success {
+  margin: 0;
+  color: #97f2bf;
   font-size: 14px;
 }
 
@@ -462,6 +500,14 @@ select {
 }
 
 @media (max-width: 680px) {
+  .login-header {
+    flex-direction: column;
+  }
+
+  .auth-toggle {
+    align-self: flex-start;
+  }
+
   .app-shell {
     padding: 12px;
   }

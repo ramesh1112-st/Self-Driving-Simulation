@@ -4,6 +4,8 @@
   "description": "",
   "main": "backend-server.js",
   "scripts": {
+    "start:backend": "node backend-server.js",
+    "start:backend:legacy": "node backend/server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {

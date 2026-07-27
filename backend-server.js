@@ -19,6 +19,7 @@ const RATE_LIMIT_MAX_ATTEMPTS = Number(process.env.RATE_LIMIT_MAX_ATTEMPTS || 5)
 const CONTROL_ROLES = new Set(["admin", "driver"]);
 const VALID_DRIVE_COMMANDS = new Set(["AUTO", "STOP", "BRAKE", "LEFT", "RIGHT", "SLOW"]);
 let lastStatePublishAt = 0;
+let database = { users: [], vehicles: [], vehiclePermissions: [], auditLogs: [] };
 
 const app = express();
 app.use(cors());
@@ -50,6 +51,33 @@ const state = {
 const vehicleSessions = new Map();
 const loginAttempts = new Map();
 
+function readAuthDatabase() {
+  try {
+    const content = fs.readFileSync(AUTH_DB_PATH, "utf8");
+    const parsed = JSON.parse(content);
+
+    return {
+      users: Array.isArray(parsed.users) ? parsed.users : [],
+      vehicles: Array.isArray(parsed.vehicles) ? parsed.vehicles : [],
+      vehiclePermissions: Array.isArray(parsed.vehiclePermissions)
+        ? parsed.vehiclePermissions
+        : [],
+      auditLogs: Array.isArray(parsed.auditLogs) ? parsed.auditLogs : [],
+    };
+  } catch {
+    return { users: [], vehicles: [], vehiclePermissions: [], auditLogs: [] };
+  }
+}
+
+function writeAuthDatabase(nextDatabase) {
+  fs.mkdirSync(path.dirname(AUTH_DB_PATH), { recursive: true });
+  fs.writeFileSync(AUTH_DB_PATH, JSON.stringify(nextDatabase, null, 2));
+}
+
+function syncAuthDatabase() {
+  database = readAuthDatabase();
+  return database;
+}
 
 function publicUser(user) {
   if (!user) return null;
@@ -63,65 +91,120 @@ function publicUser(user) {
 }
 
 async function publicVehicles() {
-  const vehicles = await prisma.vehicle.findMany();
+  try {
+    const vehicles = await prisma.vehicle.findMany();
 
-  return vehicles.map(({ id, name }) => ({
-    id,
-    name,
-  }));
+    return vehicles.map(({ id, name }) => ({
+      id,
+      name,
+    }));
+  } catch {
+    const db = syncAuthDatabase();
+
+    return db.vehicles.map(({ id, name }) => ({ id, name }));
+  }
 }
 
 async function findUserByUsername(username) {
-  return await prisma.user.findUnique({
-    where: {
-      username: username,
-    },
-  });
+  try {
+    return await prisma.user.findUnique({
+      where: {
+        username,
+      },
+    });
+  } catch {
+    const db = syncAuthDatabase();
+    return db.users.find((user) => user.username === username) || null;
+  }
 }
 
 async function findVehicle(vehicleId) {
-  return await prisma.vehicle.findUnique({
-    where: {
-      id: vehicleId,
-    },
-  });
+  try {
+    return await prisma.vehicle.findUnique({
+      where: {
+        id: vehicleId,
+      },
+    });
+  } catch {
+    const db = syncAuthDatabase();
+    return db.vehicles.find((vehicle) => vehicle.id === vehicleId) || null;
+  }
 }
 
 async function getVehiclePermission(userId, vehicleId) {
-  return await prisma.vehiclePermission.findUnique({
-    where: {
-      userId_vehicleId: {
-        userId,
-        vehicleId,
+  try {
+    return await prisma.vehiclePermission.findUnique({
+      where: {
+        userId_vehicleId: {
+          userId,
+          vehicleId,
+        },
       },
-    },
-  });
+    });
+  } catch {
+    const db = syncAuthDatabase();
+    return (
+      db.vehiclePermissions.find(
+        (permission) => permission.userId === userId && permission.vehicleId === vehicleId,
+      ) || null
+    );
+  }
 }
 
 async function getPermittedVehicles(userId) {
-  const permissions = await prisma.vehiclePermission.findMany({
-    where: {
-      userId,
-    },
-    include: {
-      vehicle: true,
-    },
-  });
+  try {
+    const permissions = await prisma.vehiclePermission.findMany({
+      where: {
+        userId,
+      },
+      include: {
+        vehicle: true,
+      },
+    });
 
-  return permissions.map((permission) => ({
-    id: permission.vehicle.id,
-    name: permission.vehicle.name,
-    permission: permission.role,
-  }));
+    return permissions.map((permission) => ({
+      id: permission.vehicle.id,
+      name: permission.vehicle.name,
+      permission: permission.role,
+    }));
+  } catch {
+    const db = syncAuthDatabase();
+    const permissions = db.vehiclePermissions.filter((permission) => permission.userId === userId);
+
+    return permissions.map((permission) => {
+      const vehicle = db.vehicles.find((item) => item.id === permission.vehicleId);
+
+      return {
+        id: vehicle?.id || permission.vehicleId,
+        name: vehicle?.name || permission.vehicleId,
+        permission: permission.role,
+      };
+    });
+  }
 }
 
 async function appendAuditLog(event, details = {}) {
-  return await prisma.auditLog.create({
-    data: {
+  try {
+    return await prisma.auditLog.create({
+      data: {
+        event,
+        ...details,
+      },
+    });
+  } catch {
+    const db = syncAuthDatabase();
+    const entry = {
+      id: `audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       event,
+      timestamp: new Date().toISOString(),
       ...details,
-    },
-  });
+    };
+
+    db.auditLogs = [entry, ...db.auditLogs].slice(0, 1000);
+    writeAuthDatabase(db);
+    database = db;
+    return entry;
+  }
 }
 
 function isRateLimited(key, now = Date.now()) {
@@ -246,13 +329,8 @@ async function authenticateUser({ username, password, vehicleId, ipAddress = "un
 
   const user = await findUserByUsername(cleanUsername);
   const vehicle = await findVehicle(vehicleId);
-  const passwordMatches =
-  user && user.password === String(password || "");
-  const permission =
-  user && vehicle
-    ? await getVehiclePermission(user.id, vehicle.id)
-    : null;
-
+  const passwordMatches = user && user.password === String(password || "");
+  const permission = user && vehicle ? await getVehiclePermission(user.id, vehicle.id) : null;
 
   if (!user || !vehicle || !passwordMatches || !permission) {
     recordFailedLogin(rateLimitKey);
@@ -278,6 +356,98 @@ async function authenticateUser({ username, password, vehicleId, ipAddress = "un
   });
 
   return { ok: true, session, vehicles: await getPermittedVehicles(user.id) };
+}
+
+async function registerUser({
+  displayName,
+  username,
+  password,
+  confirmPassword,
+  role = "viewer",
+  vehicleId,
+  ipAddress = "unknown",
+}) {
+  const cleanUsername = String(username || "").trim();
+  const cleanDisplayName = String(displayName || "").trim();
+  const cleanRole = String(role || "viewer").trim().toLowerCase();
+  const normalizedRole = ["admin", "driver", "viewer"].includes(cleanRole)
+    ? cleanRole
+    : "viewer";
+
+  if (!cleanUsername || !cleanDisplayName || !password || !confirmPassword) {
+    return { ok: false, error: "Please provide your full name, username, and a password." };
+  }
+
+  if (String(password) !== String(confirmPassword)) {
+    return { ok: false, error: "Passwords do not match." };
+  }
+
+  const existingUser = await findUserByUsername(cleanUsername);
+
+  if (existingUser) {
+    return { ok: false, error: "That username is already taken." };
+  }
+
+  const vehicle = await findVehicle(vehicleId);
+
+  if (!vehicle) {
+    return { ok: false, error: "Please choose a valid vehicle." };
+  }
+
+  const userId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const permissionId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const userRecord = {
+    id: userId,
+    username: cleanUsername,
+    displayName: cleanDisplayName,
+    password: String(password),
+    role: normalizedRole,
+  };
+
+  try {
+    await prisma.user.create({
+      data: {
+        id: userRecord.id,
+        username: userRecord.username,
+        displayName: userRecord.displayName,
+        password: userRecord.password,
+        role: userRecord.role,
+      },
+    });
+    await prisma.vehiclePermission.create({
+      data: {
+        id: permissionId,
+        role: normalizedRole,
+        userId: userRecord.id,
+        vehicleId,
+      },
+    });
+  } catch {
+    const nextDatabase = syncAuthDatabase();
+    nextDatabase.users.push(userRecord);
+    nextDatabase.vehiclePermissions.push({
+      id: permissionId,
+      role: normalizedRole,
+      userId: userRecord.id,
+      vehicleId,
+    });
+    writeAuthDatabase(nextDatabase);
+    database = nextDatabase;
+  }
+
+  await appendAuditLog("signup_succeeded", {
+    userId: userRecord.id,
+    username: userRecord.username,
+    vehicleId: vehicle.id,
+    vehicleName: vehicle.name,
+    role: normalizedRole,
+    ipAddress,
+  });
+
+  return {
+    ok: true,
+    message: "Account created successfully. Please log in to continue.",
+  };
 }
 
 async function canSendDriveCommand(session) {
@@ -381,6 +551,33 @@ io.on("connection", (socket) => {
     const result = await authenticateUser({
       username: payload.username,
       password: payload.password,
+      vehicleId: payload.vehicleId,
+      ipAddress: socket.handshake.address,
+    });
+
+    if (!result.ok) {
+      if (typeof reply === "function") {
+        reply(result);
+      }
+
+      return;
+    }
+
+    vehicleSessions.set(socket.id, result.session);
+    socket.emit("vehicle_session", result.session);
+
+    if (typeof reply === "function") {
+      reply(result);
+    }
+  });
+
+  socket.on("user_signup", async (payload = {}, reply) => {
+    const result = await registerUser({
+      displayName: payload.displayName,
+      username: payload.username,
+      password: payload.password,
+      confirmPassword: payload.confirmPassword,
+      role: payload.role,
       vehicleId: payload.vehicleId,
       ipAddress: socket.handshake.address,
     });
@@ -592,6 +789,15 @@ app.get("/audit-logs", async (req, res) => {
 function startServer(port = PORT) {
   return server.listen(port, () => {
     console.log(`Server running on port ${port}`);
+  }).on("error", (error) => {
+    if (error.code === "EADDRINUSE") {
+      console.error(`Port ${port} is already in use. Stop the existing process or choose another port.`);
+      process.exit(1);
+      return;
+    }
+
+    console.error("Server failed to start:", error);
+    process.exit(1);
   });
 }
 
@@ -612,6 +818,8 @@ module.exports = {
   authenticateUser,
   canSendDriveCommand,
   createSessionToken,
+  database,
+  registerUser,
   getPermittedVehicles,
   publicVehicles,
   verifySessionToken,
