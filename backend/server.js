@@ -1,3 +1,3 @@
-const { startServer } = require("../backend-server");
+const { startServer } = require("./backend-server");
 
 startServer();
